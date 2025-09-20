@@ -4,16 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>旅のしおりアプリ</title>
-    
+
     <!-- Tailwind CSSの読み込み -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
+
     <!-- Font Awesome (アイコン) の読み込み -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    
+
     <!-- Google Fontsの読み込み -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap" rel="stylesheet">
     
     <style>
@@ -21,6 +21,7 @@
         body {
             font-family: 'Inter', 'M PLUS Rounded 1c', sans-serif;
             overscroll-behavior: none; /* スワイプ時のブラウザの「戻る」機能を無効化 */
+            overflow: hidden;
         }
 
         /* 進行中の予定をハイライトするアニメーション */
@@ -61,6 +62,33 @@
         .page-active { transform: translateX(0); }
         .page-leave-reverse { transform: translateX(100%); }
         .page-enter-reverse { transform: translateX(-100%); }
+
+        /* 天気予報ページとマップページ専用のフルスクリーン設定 */
+        #weather-page, #map-page {
+            padding-bottom: 0;
+            overflow: hidden;
+        }
+        #weather-page .page-content, #map-page .page-content {
+            height: calc(100vh - 80px); /* 画面全体 - ナビゲーションバーの高さ */
+            display: flex;
+            flex-direction: column;
+        }
+
+        #windy-container, #gmap-container {
+            flex-grow: 1; /* コンテナをいっぱいに広げる */
+            position: relative;
+        }
+
+        #windy-iframe, #gmap-iframe {
+            width: 100%;
+            height: 100%;
+            border: 0;
+        }
+        
+        .full-screen-iframe {
+            width: 100vw;
+            height: calc(100vh - 80px); /* ナビゲーションバーを除く全画面 */
+        }
     </style>
 </head>
 <body class="shimmer-bg text-white antialiased overflow-hidden">
@@ -99,21 +127,6 @@
                     <h2 class="font-bold text-lg"><i class="fas fa-list-ul mr-2"></i>タイムライン</h2>
                     <div id="timeline-container" class="space-y-2"></div>
                 </div>
-                <div class="space-y-3">
-                    <h2 class="font-bold text-lg"><i class="fas fa-cloud-sun mr-2"></i>天気予報</h2>
-                    <div class="rounded-lg overflow-hidden shadow-lg h-96">
-                        <div id="weather-container" class="w-full h-full">
-                            <div id="weather-placeholder" class="bg-white/20 flex items-center justify-center text-center p-4 h-full w-full">
-                                <p id="weather-placeholder-text">現在地または設定で入力された地点の天気予報を表示します。</p>
-                            </div>
-                            <iframe id="windy-iframe" class="w-full h-full border-0 hidden" frameborder="0" loading="lazy"></iframe>
-                        </div>
-                    </div>
-                    <div class="text-center space-x-2">
-                        <button id="get-current-weather-btn" class="bg-yellow-400 text-black font-bold py-2 px-4 rounded-md hover:bg-yellow-500 transition-colors">現在地の天気</button>
-                        <button id="get-settings-weather-btn" class="bg-sky-500 text-white font-bold py-2 px-4 rounded-md hover:bg-sky-600 transition-colors">設定地点の天気</button>
-                    </div>
-                </div>
             </div>
         </div>
 
@@ -150,20 +163,37 @@
 
         <!-- ===== マップページ ===== -->
         <div id="map-page" class="page page-enter">
-            <div class="p-4 space-y-4">
-                <h1 class="text-2xl font-bold text-center">地図</h1>
-                <div>
-                    <h2 class="font-bold text-lg mb-2"><i class="fas fa-map-marked-alt mr-2"></i>ルート確認</h2>
-                    <div class="h-96 rounded-lg overflow-hidden shadow-lg">
-                        <div id="map-placeholder" class="bg-white/20 flex items-center justify-center text-center p-4 h-full w-full">
-                            <p>マイマップが設定されていません。<br>設定ページから埋め込みURLを<br>入力してください。</p>
-                        </div>
-                         <iframe id="gmap-iframe" class="w-full h-full border-0 hidden" allowfullscreen="" loading="lazy"></iframe>
-                    </div>
+            <div class="page-content">
+                <div class="p-4 space-y-4">
+                    <h1 class="text-2xl font-bold text-center"><i class="fas fa-map-marked-alt mr-2"></i>ルート確認</h1>
+                </div>
+                <div id="gmap-container" class="rounded-lg overflow-hidden shadow-lg">
+                     <iframe id="gmap-iframe" class="w-full h-full border-0" allowfullscreen="" loading="lazy"></iframe>
+                     <div id="map-placeholder" class="absolute inset-0 bg-white/20 flex items-center justify-center text-center p-4">
+                        <p>Googleマイマップの埋め込みURLを<br>設定ページから入力してください。</p>
+                     </div>
                 </div>
             </div>
         </div>
 
+        <!-- ===== 天気予報ページ ===== -->
+        <div id="weather-page" class="page page-enter">
+            <div class="page-content">
+                <div class="p-4 space-y-4">
+                    <h1 class="text-2xl font-bold text-center"><i class="fas fa-cloud-sun mr-2"></i>天気予報</h1>
+                </div>
+                <div id="windy-container" class="rounded-lg overflow-hidden shadow-lg">
+                    <iframe id="windy-iframe" frameborder="0" loading="lazy"></iframe>
+                    <div id="weather-placeholder" class="absolute inset-0 bg-white/20 flex items-center justify-center text-center p-4">
+                        <p id="weather-placeholder-text">天気予報を読み込み中...</p>
+                    </div>
+                </div>
+                <div class="text-center space-x-2 mt-4 p-4">
+                    <button id="get-current-weather-btn" class="bg-yellow-400 text-black font-bold py-2 px-4 rounded-md hover:bg-yellow-500 transition-colors">現在地の天気</button>
+                    <button id="get-settings-weather-btn" class="bg-sky-500 text-white font-bold py-2 px-4 rounded-md hover:bg-sky-600 transition-colors">設定地点の天気</button>
+                </div>
+            </div>
+        </div>
 
         <!-- ===== ルート検索ページ ===== -->
         <div id="route-page" class="page page-enter">
@@ -218,23 +248,27 @@
 
         <!-- フッターナビゲーション -->
         <nav class="absolute bottom-0 left-0 right-0 bg-black/30 backdrop-blur-sm p-2 flex justify-around">
-            <button data-page="main-page" class="nav-btn text-yellow-400 flex flex-col items-center w-1/4">
+            <button data-page="main-page" class="nav-btn text-yellow-400 flex flex-col items-center w-1/5">
                 <i class="fas fa-home text-xl"></i>
                 <span class="text-xs">ホーム</span>
             </button>
-            <button data-page="schedule-page" class="nav-btn text-white/80 flex flex-col items-center w-1/4">
+            <button data-page="schedule-page" class="nav-btn text-white/80 flex flex-col items-center w-1/5">
                 <i class="fas fa-calendar-alt text-xl"></i>
                 <span class="text-xs">スケジュール</span>
             </button>
-            <button data-page="map-page" class="nav-btn text-white/80 flex flex-col items-center w-1/4">
+            <button data-page="map-page" class="nav-btn text-white/80 flex flex-col items-center w-1/5">
                 <i class="fas fa-map text-xl"></i>
                 <span class="text-xs">マップ</span>
             </button>
-            <button data-page="route-page" class="nav-btn text-white/80 flex flex-col items-center w-1/4">
-                <i class="fas fa-route text-xl"></i>
-                <span class="text-xs">ルート検索</span>
+            <button data-page="weather-page" class="nav-btn text-white/80 flex flex-col items-center w-1/5">
+                <i class="fas fa-cloud-sun text-xl"></i>
+                <span class="text-xs">天気</span>
             </button>
-            <button data-page="settings-page" class="nav-btn text-white/80 flex flex-col items-center w-1/4">
+            <button data-page="route-page" class="nav-btn text-white/80 flex flex-col items-center w-1/5">
+                <i class="fas fa-route text-xl"></i>
+                <span class="text-xs">ルート</span>
+            </button>
+            <button data-page="settings-page" class="nav-btn text-white/80 flex flex-col items-center w-1/5">
                 <i class="fas fa-cog text-xl"></i>
                 <span class="text-xs">設定</span>
             </button>
@@ -247,6 +281,7 @@
         let googleMapUrl = '';
         let weatherLocation = '';
         let directionsService;
+        let geocoder;
         let currentPage = 'main-page';
         let isNavigating = false;
         let googleMapsLoaded = false;
@@ -315,6 +350,7 @@
         window.onGoogleMapsLoaded = function() {
             if (typeof google !== 'undefined') {
                 directionsService = new google.maps.DirectionsService();
+                geocoder = new google.maps.Geocoder();
             }
         }
 
@@ -324,6 +360,10 @@
             renderAll();
             setupEventListeners();
             setInterval(updateRealtimeStatus, 1000);
+            
+            // ページ読み込み時にWindyとマップをロード
+            loadWindy();
+            renderMap();
         });
 
         function loadData() {
@@ -412,78 +452,18 @@
                 placeholder.classList.remove('hidden');
             }
         }
-        
-        async function loadWeather(location, isCurrentLocation = false) {
+
+        function loadWindy() {
             const iframe = document.getElementById('windy-iframe');
             const placeholder = document.getElementById('weather-placeholder');
             const placeholderText = document.getElementById('weather-placeholder-text');
-            
-            // ローディング表示に切り替え
-            placeholderText.innerHTML = `<i class="fas fa-spinner fa-spin text-2xl mb-2"></i><p>天気予報を読み込み中...</p>`;
-            placeholder.classList.remove('hidden');
-            iframe.classList.add('hidden');
-            
-            // Windyは場所の名前では埋め込みができないため、座標を取得
-            let lat = 0;
-            let lon = 0;
-            let locationName = '';
 
-            if (isCurrentLocation) {
-                if (navigator.geolocation) {
-                    try {
-                        const position = await new Promise((resolve, reject) => {
-                            navigator.geolocation.getCurrentPosition(resolve, reject);
-                        });
-                        lat = position.coords.latitude;
-                        lon = position.coords.longitude;
-                        locationName = '現在地';
-                    } catch (error) {
-                        console.error('Geolocation error:', error);
-                        await showModal('位置情報の取得に失敗しました。ブラウザの設定で位置情報の利用を許可しているか確認してください。');
-                        placeholderText.innerHTML = `位置情報の取得に失敗しました。<br>設定地点の天気予報を表示してください。`;
-                        return;
-                    }
-                } else {
-                    console.log('Geolocation is not supported by this browser.');
-                    await showModal('お使いのブラウザでは現在地情報がサポートされていません。');
-                    placeholderText.innerHTML = `お使いのブラウザでは<br>現在地情報がサポートされていません。`;
-                    return;
-                }
-            } else if (location) {
-                if (!googleApiKey || typeof google === 'undefined' || !google.maps.Geocoder) {
-                    await showModal('Google Maps APIキーが設定されていないか、読み込まれていません。設定ページでキーを設定してください。'); 
-                    navigateTo('settings-page');
-                    return;
-                }
-                const geocoder = new google.maps.Geocoder();
-                try {
-                    const result = await geocoder.geocode({ address: location });
-                    if (result.results.length > 0) {
-                        const { lat: gLat, lng: gLng } = result.results[0].geometry.location;
-                        lat = gLat();
-                        lon = gLng();
-                        locationName = result.results[0].formatted_address;
-                    } else {
-                        await showModal('指定された地点が見つかりませんでした。');
-                        placeholderText.innerHTML = `指定された地点が見つかりませんでした。<br>別の地点を試してください。`;
-                        return;
-                    }
-                } catch (error) {
-                    console.error('Geocoder API call failed:', error);
-                    await showModal('地点の検索中にエラーが発生しました。設定を確認してください。');
-                    placeholderText.innerHTML = `地点の検索中にエラーが発生しました。<br>設定を確認してください。`;
-                    return;
-                }
-            } else {
-                await showModal('天気予報を表示する地点が設定されていません。');
-                placeholderText.innerHTML = `天気予報を表示する地点が<br>設定されていません。`;
-                return;
-            }
+            // ユーザー指定の埋め込みURLをセット
+            const defaultSrc = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=mm&metricTemp=%C2%B0C&metricWind=m/s&zoom=8&overlay=radar&product=radar&level=surface&lat=35.142&lon=138.928&detailLat=35.489&detailLon=139.482&detail=true&pressure=true`;
+            iframe.src = defaultSrc;
 
-            const src = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=mm&metricTemp=%C2%B0C&metricWind=m/s&zoom=8&overlay=radar&product=radar&level=surface&lat=${lat}&lon=${lon}&detailLat=${lat}&detailLon=${lon}&detail=true&pressure=true&message=true`;
-            iframe.src = src;
+            // ローディング表示を消す
             iframe.onload = () => {
-                iframe.classList.remove('hidden');
                 placeholder.classList.add('hidden');
             };
         }
@@ -542,8 +522,11 @@
                     schedule = []; saveData(); renderAll();
                 }
             });
-            document.getElementById('get-current-weather-btn').addEventListener('click', () => loadWeather(null, true));
-            document.getElementById('get-settings-weather-btn').addEventListener('click', () => loadWeather(weatherLocation, false));
+            
+            document.getElementById('get-current-weather-btn').addEventListener('click', () => loadWeatherByLocation(null, true));
+            document.getElementById('get-settings-weather-btn').addEventListener('click', () => loadWeatherByLocation(weatherLocation, false));
+
+
             let touchstartX = 0;
             const appContainer = document.getElementById('app-container');
             appContainer.addEventListener('touchstart', e => { touchstartX = e.changedTouches[0].screenX; }, { passive: true });
@@ -551,7 +534,7 @@
         }
             
         function handleSwipe(touchstartX, touchendX) {
-            const pages = ['main-page', 'schedule-page', 'map-page', 'route-page', 'settings-page'];
+            const pages = ['main-page', 'schedule-page', 'map-page', 'weather-page', 'route-page', 'settings-page'];
             const currentIndex = pages.indexOf(currentPage);
             if (touchendX < touchstartX - 50) { // Left swipe
                 const nextIndex = Math.min(pages.length - 1, currentIndex + 1);
@@ -580,7 +563,7 @@
                 return;
             }
 
-            const pageOrder = ['main-page', 'schedule-page', 'map-page', 'route-page', 'settings-page'];
+            const pageOrder = ['main-page', 'schedule-page', 'map-page', 'weather-page', 'route-page', 'settings-page'];
             const currentPageIndex = pageOrder.indexOf(currentPage);
             const nextPageIndex = pageOrder.indexOf(pageId);
             const isForward = nextPageIndex > currentPageIndex;
@@ -721,6 +704,81 @@
                 console.error("Directions API call failed:", error);
                 await showModal('ルート検索中にエラーが発生しました。設定を確認してください。');
             }
+        }
+        
+        async function loadWeatherByLocation(location, isCurrentLocation = false) {
+            const iframe = document.getElementById('windy-iframe');
+            const placeholder = document.getElementById('weather-placeholder');
+            const placeholderText = document.getElementById('weather-placeholder-text');
+            
+            // ローディング表示に切り替え
+            placeholderText.innerHTML = `<i class="fas fa-spinner fa-spin text-2xl mb-2"></i><p>天気予報を読み込み中...</p>`;
+            placeholder.classList.remove('hidden');
+
+            let lat = 0;
+            let lon = 0;
+            let detailLat = 0;
+            let detailLon = 0;
+
+            if (isCurrentLocation) {
+                if (navigator.geolocation) {
+                    try {
+                        const position = await new Promise((resolve, reject) => {
+                            navigator.geolocation.getCurrentPosition(resolve, reject);
+                        });
+                        lat = position.coords.latitude;
+                        lon = position.coords.longitude;
+                        detailLat = lat;
+                        detailLon = lon;
+                    } catch (error) {
+                        console.error('Geolocation error:', error);
+                        await showModal('位置情報の取得に失敗しました。ブラウザの設定で位置情報の利用を許可しているか確認してください。');
+                        placeholderText.innerHTML = `位置情報の取得に失敗しました。<br>設定地点の天気予報を表示してください。`;
+                        return;
+                    }
+                } else {
+                    console.log('Geolocation is not supported by this browser.');
+                    await showModal('お使いのブラウザでは現在地情報がサポートされていません。');
+                    placeholderText.innerHTML = `お使いのブラウザでは<br>現在地情報がサポートされていません。`;
+                    return;
+                }
+            } else if (location) {
+                if (!googleApiKey || typeof google === 'undefined' || !google.maps.Geocoder) {
+                    await showModal('Google Maps APIキーが設定されていないか、読み込まれていません。設定ページでキーを設定してください。'); 
+                    navigateTo('settings-page');
+                    return;
+                }
+                
+                try {
+                    const { results } = await geocoder.geocode({ address: location });
+                    if (results.length > 0) {
+                        const { lat: gLat, lng: gLng } = results[0].geometry.location;
+                        lat = gLat();
+                        lon = gLng();
+                        detailLat = lat;
+                        detailLon = lon;
+                    } else {
+                        await showModal('指定された地点が見つかりませんでした。');
+                        placeholderText.innerHTML = `指定された地点が見つかりませんでした。<br>別の地点を試してください。`;
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Geocoder API call failed:', error);
+                    await showModal('地点の検索中にエラーが発生しました。設定を確認してください。');
+                    placeholderText.innerHTML = `地点の検索中にエラーが発生しました。<br>設定を確認してください。`;
+                    return;
+                }
+            } else {
+                await showModal('天気予報を表示する地点が設定されていません。');
+                placeholderText.innerHTML = `天気予報を表示する地点が<br>設定されていません。`;
+                return;
+            }
+
+            const src = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=mm&metricTemp=%C2%B0C&metricWind=m/s&zoom=8&overlay=radar&product=radar&level=surface&lat=${lat}&lon=${lon}&detailLat=${detailLat}&detailLon=${detailLon}&detail=true&pressure=true`;
+            iframe.src = src;
+            iframe.onload = () => {
+                placeholder.classList.add('hidden');
+            };
         }
     </script>
 </body>
