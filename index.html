@@ -17,7 +17,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap" rel="stylesheet">
     
     <style>
-        /* カスタムスタイルの定義 */
+        /* カスタムスタイルの定義 (元デザインをできるだけそのまま保持) */
         body {
             font-family: 'Inter', 'M PLUS Rounded 1c', sans-serif;
             overscroll-behavior: none; /* スワイプ時のブラウザの「戻る」機能を無効化 */
@@ -89,6 +89,11 @@
             width: 100vw;
             height: calc(100vh - 80px); /* ナビゲーションバーを除く全画面 */
         }
+
+        /* 小さいデバイス向け調整 */
+        @media (max-width: 640px) {
+            body { font-size: 14px; }
+        }
     </style>
 </head>
 <body class="shimmer-bg text-white antialiased overflow-hidden">
@@ -135,11 +140,11 @@
             <div class="p-4 space-y-4">
                 <h1 class="text-2xl font-bold text-center">スケジュール管理</h1>
                 <div class="bg-white/20 p-4 rounded-xl shadow-lg space-y-3">
-                    <h2 class="font-bold text-lg">新しい予定を追加</h2>
+                    <h2 class="font-bold text-lg">新しい予定を追加 / 編集</h2>
                     <input type="text" id="event-title" placeholder="予定のタイトル (例: 博物館見学)" class="w-full bg-black/20 border-0 rounded-md px-3 py-2 placeholder-white/50 focus:ring-2 focus:ring-yellow-400">
                     <div class="grid grid-cols-2 gap-2">
-                        <input type="time" id="event-start" class="w-full bg-black/20 border-0 rounded-md px-3 py-2">
-                        <input type="time" id="event-end" class="w-full bg-black/20 border-0 rounded-md px-3 py-2">
+                        <input type="datetime-local" id="event-start" class="w-full bg-black/20 border-0 rounded-md px-3 py-2">
+                        <input type="datetime-local" id="event-end" class="w-full bg-black/20 border-0 rounded-md px-3 py-2">
                     </div>
                     <select id="event-type" class="w-full bg-black/20 border-0 rounded-md px-3 py-2">
                         <option value="fas fa-walking">🚶 徒歩</option>
@@ -152,7 +157,10 @@
                         <option value="fas fa-info-circle">📝 その他</option>
                     </select>
                     <textarea id="event-details" placeholder="詳細 (例: 路線情報、場所など)" class="w-full bg-black/20 border-0 rounded-md px-3 py-2 h-20 placeholder-white/50 focus:ring-2 focus:ring-yellow-400"></textarea>
-                    <button id="add-event-btn" class="w-full bg-yellow-400 text-black font-bold py-2 rounded-md hover:bg-yellow-500 transition-colors">追加する</button>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="add-event-btn" class="w-full bg-yellow-400 text-black font-bold py-2 rounded-md hover:bg-yellow-500 transition-colors">追加する</button>
+                        <button id="cancel-edit-btn" class="w-full bg-gray-500 text-white font-bold py-2 rounded-md hover:bg-gray-600 transition-colors hidden">編集をキャンセル</button>
+                    </div>
                 </div>
                 <div class="space-y-3">
                     <h2 class="font-bold text-lg">予定一覧</h2>
@@ -276,6 +284,7 @@
     </div>
 
     <script>
+        // データ構造: schedule = [{id, title, startISO, endISO, type, details}]
         let schedule = [];
         let googleApiKey = '';
         let googleMapUrl = '';
@@ -286,8 +295,9 @@
         let isNavigating = false;
         let googleMapsLoaded = false;
         let modalResolve;
-        
-        // モーダルを閉じる関数
+        let editingId = null; // 編集中のイベントID
+
+        // モーダル関数
         function closeModal() {
             const modal = document.getElementById('modal');
             modal.classList.add('hidden');
@@ -302,15 +312,13 @@
             const cancelBtn = document.getElementById('modal-cancel-btn');
 
             modalMessage.textContent = message;
-            
-            // 確認モーダルの場合はボタンを表示
             if (isConfirm) {
                 modalButtons.classList.remove('hidden');
                 okBtn.style.display = 'inline-block';
                 okBtn.textContent = 'OK';
                 cancelBtn.style.display = 'inline-block';
             } else {
-                modalButtons.classList.remove('hidden'); // ボタンコンテナは常に表示
+                modalButtons.classList.remove('hidden');
                 okBtn.style.display = 'block';
                 okBtn.textContent = '閉じる';
                 cancelBtn.style.display = 'none';
@@ -318,26 +326,17 @@
 
             modal.classList.remove('hidden');
             modal.style.display = 'flex';
-            
             return new Promise(resolve => {
                 modalResolve = resolve;
                 if (isConfirm) {
-                    okBtn.onclick = () => {
-                        closeModal();
-                        resolve(true);
-                    };
-                    cancelBtn.onclick = () => {
-                        closeModal();
-                        resolve(false);
-                    };
+                    okBtn.onclick = () => { closeModal(); resolve(true); };
+                    cancelBtn.onclick = () => { closeModal(); resolve(false); };
                 } else {
-                     okBtn.onclick = () => {
-                        closeModal();
-                    };
+                    okBtn.onclick = () => { closeModal(); resolve(); };
                 }
             });
         }
-        
+
         function initGoogleMaps() {
             if (googleApiKey && !googleMapsLoaded) {
                 const script = document.createElement('script');
@@ -360,21 +359,27 @@
             renderAll();
             setupEventListeners();
             setInterval(updateRealtimeStatus, 1000);
-            
-            // ページ読み込み時にWindyとマップをロード
-            loadWindy();
+            loadWindyDefault();
             renderMap();
         });
 
         function loadData() {
             const savedSchedule = localStorage.getItem('travelSchedule');
             if (savedSchedule) {
-                schedule = JSON.parse(savedSchedule);
+                try { schedule = JSON.parse(savedSchedule); }
+                catch(e) { schedule = []; }
             } else {
+                // 初期サンプル。時間のみのものを今日の日時に変換して保持する
+                const today = new Date();
+                const makeISO = (hhmm) => {
+                    const [hh, mm] = hhmm.split(':');
+                    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate(), parseInt(hh,10), parseInt(mm,10));
+                    return d.toISOString();
+                }
                 schedule = [
-                    { id: 1, title: '羽田空港に到着', start: '09:00', end: '09:30', type: 'fas fa-plane-arrival', details: '第1ターミナル' },
-                    { id: 2, title: 'リムジンバスで移動', start: '09:45', end: '10:30', type: 'fas fa-bus', details: '新宿駅西口行き' },
-                    { id: 3, title: 'ホテルにチェックイン', start: '11:00', end: '11:30', type: 'fas fa-bed', details: '荷物を預ける' },
+                    { id: 1, title: '羽田空港に到着', startISO: makeISO('09:00'), endISO: makeISO('09:30'), type: 'fas fa-plane-arrival', details: '第1ターミナル' },
+                    { id: 2, title: 'リムジンバスで移動', startISO: makeISO('09:45'), endISO: makeISO('10:30'), type: 'fas fa-bus', details: '新宿駅西口行き' },
+                    { id: 3, title: 'ホテルにチェックイン', startISO: makeISO('11:00'), endISO: makeISO('11:30'), type: 'fas fa-bed', details: '荷物を預ける' },
                 ];
             }
             googleApiKey = localStorage.getItem('googleApiKey') || '';
@@ -391,9 +396,13 @@
             localStorage.setItem('googleMapUrl', googleMapUrl);
             localStorage.setItem('weatherLocation', weatherLocation);
         }
-        
+
         function sortSchedule() {
-            schedule.sort((a, b) => a.start.localeCompare(b.start));
+            schedule.sort((a, b) => {
+                const aTime = new Date(a.startISO).getTime();
+                const bTime = new Date(b.startISO).getTime();
+                return aTime - bTime;
+            });
         }
 
         function renderAll() {
@@ -404,6 +413,17 @@
             renderMap();
         }
 
+        function formatDateTimeLocal(iso) {
+            const d = new Date(iso);
+            if (isNaN(d)) return '';
+            const y = d.getFullYear();
+            const m = String(d.getMonth()+1).padStart(2,'0');
+            const day = String(d.getDate()).padStart(2,'0');
+            const hh = String(d.getHours()).padStart(2,'0');
+            const mm = String(d.getMinutes()).padStart(2,'0');
+            return `${y}-${m}-${day} ${hh}:${mm}`;
+        }
+
         function renderTimeline() {
             const container = document.getElementById('timeline-container');
             container.innerHTML = '';
@@ -412,18 +432,21 @@
                 return;
             }
             const now = new Date();
-            const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+            let currentEvent = null;
             schedule.forEach(event => {
-                const isCurrent = currentTimeStr >= event.start && currentTimeStr < event.end;
-                const isPast = currentTimeStr >= event.end;
+                const start = new Date(event.startISO);
+                const end = new Date(event.endISO);
+                const isCurrent = now >= start && now < end;
+                const isPast = now >= end;
                 let cardClass = isCurrent ? 'bg-yellow-400/80 text-black glowing-pulse' : isPast ? 'bg-black/20 opacity-60' : 'bg-white/20';
                 const item = document.createElement('div');
                 item.className = `flex items-start space-x-3 p-3 rounded-xl transition-all ${cardClass}`;
-                item.innerHTML = `<div class="flex flex-col items-center"><i class="${event.type} text-xl w-6 text-center"></i><div class="w-px h-full bg-white/50 flex-grow mt-1"></div></div><div><p class="font-bold">${event.start} - ${event.end}</p><h3 class="text-lg">${event.title}</h3>${event.details ? `<p class="text-sm opacity-80">${event.details}</p>` : ''}</div>`;
+                item.innerHTML = `<div class="flex flex-col items-center"><i class="${event.type} text-xl w-6 text-center"></i><div class="w-px h-full bg-white/50 flex-grow mt-1"></div></div><div><p class="font-bold">${formatDateTimeLocal(event.startISO)} - ${formatDateTimeLocal(event.endISO)}</p><h3 class="text-lg">${event.title}</h3>${event.details ? `<p class="text-sm opacity-80">${event.details}</p>` : ''}</div>`;
                 container.appendChild(item);
+                if (isCurrent) currentEvent = event;
             });
         }
-        
+
         function renderScheduleList() {
             const container = document.getElementById('schedule-list-container');
             container.innerHTML = '';
@@ -434,10 +457,12 @@
             schedule.forEach(event => {
                 const item = document.createElement('div');
                 item.className = 'bg-black/20 p-3 rounded-lg flex justify-between items-center';
-                item.innerHTML = `<div><p class="font-bold">${event.start} - ${event.end} <i class="${event.type} ml-2"></i></p><p>${event.title}</p></div><button class="delete-event-btn text-red-400 hover:text-red-500" data-id="${event.id}"><i class="fas fa-trash-alt fa-lg"></i></button>`;
+                item.innerHTML = `<div><p class="font-bold">${formatDateTimeLocal(event.startISO)} <i class="${event.type} ml-2"></i></p><p>${event.title}</p></div><div class="flex items-center gap-2"><button class="edit-event-btn text-sky-400 hover:text-sky-500" data-id="${event.id}"><i class="fas fa-edit fa-lg"></i></button><button class="delete-event-btn text-red-400 hover:text-red-500" data-id="${event.id}"><i class="fas fa-trash-alt fa-lg"></i></button></div>`;
                 container.appendChild(item);
             });
+
             document.querySelectorAll('.delete-event-btn').forEach(button => button.addEventListener('click', deleteEvent));
+            document.querySelectorAll('.edit-event-btn').forEach(button => button.addEventListener('click', openEditEvent));
         }
 
         function renderMap() {
@@ -453,57 +478,51 @@
             }
         }
 
-        function loadWindy() {
+        function loadWindyDefault() {
             const iframe = document.getElementById('windy-iframe');
-            const placeholder = document.getElementById('weather-placeholder');
-            const placeholderText = document.getElementById('weather-placeholder-text');
-
-            // ユーザー指定の埋め込みURLをセット
-            const defaultSrc = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=mm&metricTemp=%C2%B0C&metricWind=m/s&zoom=8&overlay=radar&product=radar&level=surface&lat=35.142&lon=138.928&detailLat=35.489&detailLon=139.482&detail=true&pressure=true`;
+            const defaultSrc = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=default&metricTemp=default&metricWind=default&zoom=8&overlay=radar&product=radar&level=surface&lat=35.583&lon=139.758&detailLat=35.683&detailLon=139.759&detail=true&pressure=true&message=true`;
             iframe.src = defaultSrc;
-
-            // ローディング表示を消す
-            iframe.onload = () => {
-                placeholder.classList.add('hidden');
-            };
+            iframe.onload = () => { document.getElementById('weather-placeholder').classList.add('hidden'); };
         }
-        
+
         function updateRealtimeStatus() {
             document.getElementById('current-time').textContent = new Date().toLocaleString('ja-JP');
             const now = new Date();
-            const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
             let currentEvent = null;
-            let nextEvent = schedule.find(event => currentTimeStr < event.start);
+            let nextEvent = null;
             for (const event of schedule) {
-                if (currentTimeStr >= event.start && currentTimeStr < event.end) currentEvent = event;
+                const start = new Date(event.startISO);
+                const end = new Date(event.endISO);
+                if (now >= start && now < end) currentEvent = event;
+                if (start > now && (!nextEvent || new Date(event.startISO) < new Date(nextEvent.startISO))) nextEvent = event;
             }
 
             const currentStatusCard = document.getElementById('current-status-card');
-            if (currentEvent && /train|bus|plane|route/.test(currentEvent.type)) {
+            if (currentEvent && /train|bus|plane|route|route/.test(currentEvent.type)) {
                 currentStatusCard.classList.remove('hidden');
-                const start = new Date(`${now.toDateString()} ${currentEvent.start}`);
-                const end = new Date(`${now.toDateString()} ${currentEvent.end}`);
-                if (end < start) end.setDate(end.getDate() + 1);
-                const progress = Math.min(100, Math.max(0, (now - start) / (end - start) * 100));
+                const start = new Date(currentEvent.startISO);
+                const end = new Date(currentEvent.endISO);
+                let progress = 0;
+                if (end > start) progress = Math.min(100, Math.max(0, (now - start) / (end - start) * 100));
                 document.getElementById('progress-bar').style.width = `${progress}%`;
                 const [origin, destination] = currentEvent.title.split('→');
                 document.getElementById('current-location').textContent = origin ? origin.trim() : '出発地';
                 document.getElementById('next-station').textContent = destination ? destination.trim() : '目的地';
-                document.getElementById('departure-time-info').textContent = currentEvent.start;
-                document.getElementById('arrival-time-info').textContent = `到着予定: ${currentEvent.end}`;
+                document.getElementById('departure-time-info').textContent = formatDateTimeLocal(currentEvent.startISO);
+                document.getElementById('arrival-time-info').textContent = `到着予定: ${formatDateTimeLocal(currentEvent.endISO)}`;
                 document.getElementById('line-info').innerHTML = `<i class="${currentEvent.type} mr-1"></i> ${currentEvent.details || '詳細情報なし'}`;
             } else {
                 currentStatusCard.classList.add('hidden');
             }
-            
+
             const nextEventTitle = document.getElementById('next-event-title');
             const nextEventTime = document.getElementById('next-event-time');
             if (nextEvent) {
                 nextEventTitle.textContent = nextEvent.title;
-                nextEventTime.textContent = `${nextEvent.start} - ${nextEvent.end}`;
+                nextEventTime.textContent = `${formatDateTimeLocal(nextEvent.startISO)} - ${formatDateTimeLocal(nextEvent.endISO)}`;
             } else if (currentEvent) {
                 nextEventTitle.textContent = "現在進行中：" + currentEvent.title;
-                nextEventTime.textContent = `${currentEvent.start} - ${currentEvent.end}`;
+                nextEventTime.textContent = `${formatDateTimeLocal(currentEvent.startISO)} - ${formatDateTimeLocal(currentEvent.endISO)}`;
             } else {
                 nextEventTitle.textContent = '次の予定はありません';
                 nextEventTime.textContent = '';
@@ -513,26 +532,23 @@
 
         function setupEventListeners() {
             document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => navigateTo(btn.dataset.page)));
-            document.getElementById('add-event-btn').addEventListener('click', addEvent);
+            document.getElementById('add-event-btn').addEventListener('click', handleAddOrSaveEvent);
+            document.getElementById('cancel-edit-btn').addEventListener('click', cancelEdit);
             document.getElementById('search-route-btn').addEventListener('click', searchRoute);
             document.getElementById('save-settings-btn').addEventListener('click', saveSettings);
             document.getElementById('clear-data-btn').addEventListener('click', async () => {
                 const confirmed = await showModal('本当にすべてのスケジュールを削除しますか？', true);
-                if (confirmed) {
-                    schedule = []; saveData(); renderAll();
-                }
+                if (confirmed) { schedule = []; saveData(); renderAll(); }
             });
-            
             document.getElementById('get-current-weather-btn').addEventListener('click', () => loadWeatherByLocation(null, true));
             document.getElementById('get-settings-weather-btn').addEventListener('click', () => loadWeatherByLocation(weatherLocation, false));
-
 
             let touchstartX = 0;
             const appContainer = document.getElementById('app-container');
             appContainer.addEventListener('touchstart', e => { touchstartX = e.changedTouches[0].screenX; }, { passive: true });
             appContainer.addEventListener('touchend', e => { handleSwipe(touchstartX, e.changedTouches[0].screenX); }, { passive: true });
         }
-            
+
         function handleSwipe(touchstartX, touchendX) {
             const pages = ['main-page', 'schedule-page', 'map-page', 'weather-page', 'route-page', 'settings-page'];
             const currentIndex = pages.indexOf(currentPage);
@@ -545,11 +561,7 @@
                 if (currentIndex !== prevIndex) navigateTo(pages[prevIndex]);
             }
         }
-        
-        /**
-         * ページ遷移を実行する関数（最終修正版）
-         * @param {string} pageId - 遷移先のページID
-         */
+
         function navigateTo(pageId) {
             if (currentPage === pageId || isNavigating) return;
             isNavigating = true;
@@ -558,45 +570,27 @@
             const nextPageEl = document.getElementById(pageId);
             const navButtons = document.querySelectorAll('.nav-btn');
 
-            if (!currentPageEl || !nextPageEl) {
-                isNavigating = false;
-                return;
-            }
+            if (!currentPageEl || !nextPageEl) { isNavigating = false; return; }
 
             const pageOrder = ['main-page', 'schedule-page', 'map-page', 'weather-page', 'route-page', 'settings-page'];
             const currentPageIndex = pageOrder.indexOf(currentPage);
             const nextPageIndex = pageOrder.indexOf(pageId);
             const isForward = nextPageIndex > currentPageIndex;
 
-            // アニメーション完了後に実行されるクリーンアップ処理
             const onTransitionEnd = () => {
                 nextPageEl.removeEventListener('transitionend', onTransitionEnd);
-                
-                // 古いページで意図しないアニメーションが起きないよう、一時的にtransitionを無効化
                 currentPageEl.style.transition = 'none';
-                
-                // 古いページの状態を完全にリセット
                 currentPageEl.classList.remove('page-active', 'page-leave', 'page-leave-reverse');
-                currentPageEl.classList.add('page-enter'); // デフォルトの画面外（右）状態に戻す
-                
-                // ブラウザにスタイル変更を即時反映させるためのハック
-                currentPageEl.offsetHeight; 
-                
-                // transitionを元に戻して、次のアニメーションに備える
+                currentPageEl.classList.add('page-enter');
+                currentPageEl.offsetHeight;
                 currentPageEl.style.transition = '';
-                // === ここまでが修正箇所 ===
-
-                // グローバルな状態を更新
                 currentPage = pageId;
                 isNavigating = false;
             };
             nextPageEl.addEventListener('transitionend', onTransitionEnd);
 
-            // 次のページを開始位置にセット
             nextPageEl.classList.remove('page-enter', 'page-enter-reverse');
             nextPageEl.classList.add(isForward ? 'page-enter' : 'page-enter-reverse');
-            
-            // アニメーションを開始
             requestAnimationFrame(() => {
                 currentPageEl.classList.add(isForward ? 'page-leave' : 'page-leave-reverse');
                 currentPageEl.classList.remove('page-active');
@@ -604,27 +598,36 @@
                 nextPageEl.classList.add('page-active');
             });
 
-            // ナビゲーションボタンのスタイルを更新
             navButtons.forEach(btn => {
                 btn.classList.toggle('text-yellow-400', btn.dataset.page === pageId);
                 btn.classList.toggle('text-white/80', btn.dataset.page !== pageId);
             });
         }
 
-
-        async function addEvent() {
-            const title = document.getElementById('event-title').value;
+        // 追加 or 編集のハンドラ
+        function handleAddOrSaveEvent() {
+            const title = document.getElementById('event-title').value.trim();
             const start = document.getElementById('event-start').value;
             const end = document.getElementById('event-end').value;
             const type = document.getElementById('event-type').value;
-            const details = document.getElementById('event-details').value;
+            const details = document.getElementById('event-details').value.trim();
 
-            if (!title || !start || !end) {
-                await showModal('タイトル、開始時刻、終了時刻は必須です。'); return;
+            if (!title || !start || !end) { showModal('タイトル、開始日時、終了日時は必須です。'); return; }
+            const startISO = new Date(start).toISOString();
+            const endISO = new Date(end).toISOString();
+            if (new Date(endISO) <= new Date(startISO)) { showModal('終了時刻は開始時刻より後にしてください。'); return; }
+
+            if (editingId) {
+                // 編集モード
+                schedule = schedule.map(ev => ev.id === editingId ? { ...ev, title, startISO, endISO, type, details } : ev);
+                editingId = null;
+                document.getElementById('cancel-edit-btn').classList.add('hidden');
+                document.getElementById('add-event-btn').textContent = '追加する';
+            } else {
+                // 新規追加
+                schedule.push({ id: Date.now(), title, startISO, endISO, type, details });
             }
-            schedule.push({ id: Date.now(), title, start, end, type, details });
-            saveData();
-            renderAll();
+            saveData(); renderAll();
             document.getElementById('event-title').value = '';
             document.getElementById('event-start').value = '';
             document.getElementById('event-end').value = '';
@@ -632,37 +635,83 @@
             navigateTo('main-page');
         }
 
+        function openEditEvent(e) {
+            const id = parseInt(e.currentTarget.dataset.id, 10);
+            const ev = schedule.find(s => s.id === id);
+            if (!ev) return;
+            editingId = id;
+            document.getElementById('event-title').value = ev.title;
+            // datetime-local expects format yyyy-MM-ddTHH:mm
+            const toInputVal = (iso) => {
+                const d = new Date(iso);
+                const y = d.getFullYear();
+                const m = String(d.getMonth()+1).padStart(2,'0');
+                const day = String(d.getDate()).padStart(2,'0');
+                const hh = String(d.getHours()).padStart(2,'0');
+                const mm = String(d.getMinutes()).padStart(2,'0');
+                return `${y}-${m}-${day}T${hh}:${mm}`;
+            }
+            document.getElementById('event-start').value = toInputVal(ev.startISO);
+            document.getElementById('event-end').value = toInputVal(ev.endISO);
+            document.getElementById('event-type').value = ev.type;
+            document.getElementById('event-details').value = ev.details || '';
+            document.getElementById('add-event-btn').textContent = '保存する';
+            document.getElementById('cancel-edit-btn').classList.remove('hidden');
+            navigateTo('schedule-page');
+        }
+
+        function cancelEdit() {
+            editingId = null;
+            document.getElementById('event-title').value = '';
+            document.getElementById('event-start').value = '';
+            document.getElementById('event-end').value = '';
+            document.getElementById('event-type').value = 'fas fa-walking';
+            document.getElementById('event-details').value = '';
+            document.getElementById('add-event-btn').textContent = '追加する';
+            document.getElementById('cancel-edit-btn').classList.add('hidden');
+        }
+
         async function deleteEvent(e) {
             const confirmed = await showModal('この予定を削除しますか？', true);
             if (confirmed) {
-                const eventId = parseInt(e.currentTarget.dataset.id);
+                const eventId = parseInt(e.currentTarget.dataset.id, 10);
                 schedule = schedule.filter(event => event.id !== eventId);
                 saveData(); renderAll();
             }
         }
 
         async function saveSettings() {
-            googleApiKey = document.getElementById('api-key-input').value;
-            googleMapUrl = document.getElementById('gmap-url-input').value;
-            weatherLocation = document.getElementById('weather-location-input').value;
+            googleApiKey = document.getElementById('api-key-input').value.trim();
+            googleMapUrl = document.getElementById('gmap-url-input').value.trim();
+            weatherLocation = document.getElementById('weather-location-input').value.trim();
             initGoogleMaps();
-            saveData(); 
+            saveData();
             renderMap();
-            await showModal('設定を保存しました。'); navigateTo('main-page');
+            await showModal('設定を保存しました。');
+            navigateTo('main-page');
+        }
+
+        // Google Maps Geocoder用のPromiseラッパー
+        function geocodeAddress(address) {
+            return new Promise((resolve, reject) => {
+                if (!geocoder) return reject('Geocoder not initialized');
+                geocoder.geocode({ address }, (results, status) => {
+                    if (status === 'OK') resolve(results);
+                    else reject(status);
+                });
+            });
         }
 
         async function searchRoute() {
             if (!googleApiKey || typeof google === 'undefined' || !directionsService) {
-                await showModal('Google Maps APIキーが設定されていないか、読み込まれていません。設定ページでキーを設定してください。'); 
-                navigateTo('settings-page'); 
+                await showModal('Google Maps APIキーが設定されていないか、読み込まれていません。設定ページでキーを設定してください。');
+                navigateTo('settings-page');
                 return;
             }
-            const origin = document.getElementById('origin').value;
-            const destination = document.getElementById('destination').value;
-            if (!origin || !destination) {
-                await showModal('出発地と目的地を入力してください。'); return;
-            }
-            
+            const origin = document.getElementById('origin').value.trim();
+            const destination = document.getElementById('destination').value.trim();
+            if (!origin || !destination) { await showModal('出発地と目的地を入力してください。'); return; }
+
             const resultsContainer = document.getElementById('route-results-container');
             const loadingIndicator = document.getElementById('loading-indicator');
             resultsContainer.innerHTML = '';
@@ -674,22 +723,24 @@
                 travelMode: 'TRANSIT',
                 provideRouteAlternatives: true
             };
-            
             try {
-                // DirectionsService APIはAPIキーを必要とするため、Google Maps APIをロードする
                 directionsService.route(payload, async (result, status) => {
                     loadingIndicator.classList.add('hidden');
-                    if (status == 'OK') {
+                    if (status === 'OK') {
                         result.routes.slice(0, 3).forEach((route, index) => {
                             const leg = route.legs[0];
-                            const summary = leg.steps.filter(s => s.travel_mode === 'TRANSIT').map(s => s.transit.line.name).join(' → ');
+                            const summary = leg.steps.filter(s => s.travel_mode === 'TRANSIT').map(s => (s.transit && s.transit.line && s.transit.line.name) ? s.transit.line.name : '').filter(Boolean).join(' → ');
+                            const departTime = leg.departure_time && leg.departure_time.value ? new Date(leg.departure_time.value) : null;
+                            const arriveTime = leg.arrival_time && leg.arrival_time.value ? new Date(leg.arrival_time.value) : null;
                             const card = document.createElement('div');
                             card.className = 'bg-white/20 p-3 rounded-lg cursor-pointer hover:bg-white/30';
-                            card.innerHTML = `<div class="flex justify-between items-center"><p class="font-bold text-lg">候補 ${index + 1} <span class="text-sm font-normal">(${leg.duration.text})</span></p><p class="font-bold">${leg.departure_time.text} → ${leg.arrival_time.text}</p></div><p class="text-sm opacity-90 truncate">${summary}</p>`;
+                            card.innerHTML = `<div class="flex justify-between items-center"><p class="font-bold text-lg">候補 ${index + 1} <span class="text-sm font-normal">(${leg.duration.text})</span></p><p class="font-bold">${departTime ? departTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''} → ${arriveTime ? arriveTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''}</p></div><p class="text-sm opacity-90 truncate">${summary}</p>`;
                             card.addEventListener('click', async () => {
                                 const confirmed = await showModal(`予定を追加しますか？\n${origin} → ${destination}`, true);
                                 if (confirmed) {
-                                    schedule.push({ id: Date.now(), title: `${origin} → ${destination}`, start: leg.departure_time.text.replace(/am|pm/i, '').trim(), end: leg.arrival_time.text.replace(/am|pm/i, '').trim(), type: 'fas fa-route', details: summary });
+                                    const startISO = departTime ? departTime.toISOString() : new Date().toISOString();
+                                    const endISO = arriveTime ? arriveTime.toISOString() : new Date(new Date().getTime() + 60*60*1000).toISOString();
+                                    schedule.push({ id: Date.now(), title: `${origin} → ${destination}`, startISO, endISO, type: 'fas fa-route', details: summary });
                                     saveData(); renderAll(); navigateTo('schedule-page');
                                 }
                             });
@@ -701,24 +752,20 @@
                 });
             } catch (error) {
                 loadingIndicator.classList.add('hidden');
-                console.error("Directions API call failed:", error);
+                console.error('Directions API call failed:', error);
                 await showModal('ルート検索中にエラーが発生しました。設定を確認してください。');
             }
         }
-        
+
         async function loadWeatherByLocation(location, isCurrentLocation = false) {
             const iframe = document.getElementById('windy-iframe');
             const placeholder = document.getElementById('weather-placeholder');
             const placeholderText = document.getElementById('weather-placeholder-text');
-            
-            // ローディング表示に切り替え
+
             placeholderText.innerHTML = `<i class="fas fa-spinner fa-spin text-2xl mb-2"></i><p>天気予報を読み込み中...</p>`;
             placeholder.classList.remove('hidden');
 
-            let lat = 0;
-            let lon = 0;
-            let detailLat = 0;
-            let detailLon = 0;
+            let lat = 0; let lon = 0; let detailLat = 0; let detailLon = 0;
 
             if (isCurrentLocation) {
                 if (navigator.geolocation) {
@@ -726,10 +773,8 @@
                         const position = await new Promise((resolve, reject) => {
                             navigator.geolocation.getCurrentPosition(resolve, reject);
                         });
-                        lat = position.coords.latitude;
-                        lon = position.coords.longitude;
-                        detailLat = lat;
-                        detailLon = lon;
+                        lat = position.coords.latitude; lon = position.coords.longitude;
+                        detailLat = lat; detailLon = lon;
                     } catch (error) {
                         console.error('Geolocation error:', error);
                         await showModal('位置情報の取得に失敗しました。ブラウザの設定で位置情報の利用を許可しているか確認してください。');
@@ -737,26 +782,22 @@
                         return;
                     }
                 } else {
-                    console.log('Geolocation is not supported by this browser.');
                     await showModal('お使いのブラウザでは現在地情報がサポートされていません。');
                     placeholderText.innerHTML = `お使いのブラウザでは<br>現在地情報がサポートされていません。`;
                     return;
                 }
             } else if (location) {
-                if (!googleApiKey || typeof google === 'undefined' || !google.maps.Geocoder) {
-                    await showModal('Google Maps APIキーが設定されていないか、読み込まれていません。設定ページでキーを設定してください。'); 
+                if (!googleApiKey || typeof google === 'undefined' || !geocoder) {
+                    await showModal('Google Maps APIキーが設定されていないか、読み込まれていません。設定ページでキーを設定してください。');
                     navigateTo('settings-page');
                     return;
                 }
-                
                 try {
-                    const { results } = await geocoder.geocode({ address: location });
+                    const results = await geocodeAddress(location);
                     if (results.length > 0) {
-                        const { lat: gLat, lng: gLng } = results[0].geometry.location;
-                        lat = gLat();
-                        lon = gLng();
-                        detailLat = lat;
-                        detailLon = lon;
+                        const gLat = results[0].geometry.location.lat();
+                        const gLng = results[0].geometry.location.lng();
+                        lat = gLat; lon = gLng; detailLat = lat; detailLon = lon;
                     } else {
                         await showModal('指定された地点が見つかりませんでした。');
                         placeholderText.innerHTML = `指定された地点が見つかりませんでした。<br>別の地点を試してください。`;
@@ -774,11 +815,9 @@
                 return;
             }
 
-            const src = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=mm&metricTemp=%C2%B0C&metricWind=m/s&zoom=8&overlay=radar&product=radar&level=surface&lat=${lat}&lon=${lon}&detailLat=${detailLat}&detailLon=${detailLon}&detail=true&pressure=true`;
+            const src = `https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=default&metricTemp=default&metricWind=default&zoom=10&overlay=radar&product=radar&level=surface&lat=${lat}&lon=${lon}&detailLat=${detailLat}&detailLon=${detailLon}&detail=true&pressure=true&message=true`;
             iframe.src = src;
-            iframe.onload = () => {
-                placeholder.classList.add('hidden');
-            };
+            iframe.onload = () => { placeholder.classList.add('hidden'); };
         }
     </script>
 </body>
